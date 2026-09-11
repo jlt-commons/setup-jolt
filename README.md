@@ -17,7 +17,7 @@ upstream too, not wired here yet).
 ## Usage
 
 ```yaml
-- uses: jlt-commons/setup-jolt@main
+- uses: jlt-commons/setup-jolt@v1
   with:
     version: '0.8.6'   # or omit for "latest"
 
