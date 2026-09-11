@@ -38,8 +38,17 @@ runs:
         # works against a concrete version string --
         version="${{ inputs.version }}"
         if [ "$version" = "latest" ]; then
-          version="$(curl -sSfL https://api.github.com/repos/jolt-lang/jolt/releases/latest \
-            | grep -m1 '"tag_name"' | sed -E 's/.*"v?([^"]+)".*/\1/')"
+          # Capture the full response BEFORE parsing it. Piping curl
+          # straight into `grep -m1` races: grep can close its end of the
+          # pipe the instant it finds a match, and if curl is still
+          # writing the rest of the (small, fast) response when that
+          # happens, it gets SIGPIPE and exits 23 ("Failure writing
+          # output to destination") under `set -e`, aborting the whole
+          # script before the match is ever used. Verified live: this
+          # exact race fired on a GitHub-hosted ubuntu-latest runner even
+          # though the same command ran clean locally every time.
+          api_response="$(curl -sSfL https://api.github.com/repos/jolt-lang/jolt/releases/latest)"
+          version="$(printf '%s\n' "$api_response" | grep -m1 '"tag_name"' | sed -E 's/.*"v?([^"]+)".*/\1/')"
           if [ -z "$version" ]; then
             echo "::error::setup-jolt: could not resolve the latest jolt release from the GitHub API"
             exit 1
