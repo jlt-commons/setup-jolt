@@ -1,0 +1,45 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install jolt (pinned version)
+        id: pinned
+        uses: ./
+        with:
+          version: '0.8.6'
+
+      - name: Verify the pinned install
+        shell: bash
+        run: |
+          set -euo pipefail
+          jolt --version
+          [ "${{ steps.pinned.outputs.version }}" = "0.8.6" ] || { echo "::error::output version was '${{ steps.pinned.outputs.version }}', expected 0.8.6"; exit 1; }
+          jolt -e "(+ 1 2)" | grep -q '^3$' || { echo "::error::jolt -e '(+ 1 2)' did not print 3"; exit 1; }
+          echo "pinned install OK: $(jolt --version)"
+
+      - name: Install jolt (latest)
+        id: latest
+        uses: ./
+        with:
+          version: 'latest'
+
+      - name: Verify the latest install
+        shell: bash
+        run: |
+          set -euo pipefail
+          jolt --version
+          [ -n "${{ steps.latest.outputs.version }}" ] || { echo "::error::latest install produced an empty version output"; exit 1; }
+          echo "latest install OK: v${{ steps.latest.outputs.version }}"

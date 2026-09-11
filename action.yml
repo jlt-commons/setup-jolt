@@ -1,0 +1,90 @@
+name: 'Setup Jolt'
+description: 'Install jolt (native Clojure on Chez Scheme, no JVM) on a GitHub Actions runner'
+author: 'jlt-commons'
+
+inputs:
+  version:
+    description: 'jolt version to install, e.g. "0.8.6" (the "v" prefix is optional). "latest" resolves the newest GitHub release.'
+    required: false
+    default: 'latest'
+
+outputs:
+  version:
+    description: 'The jolt version actually installed'
+    value: ${{ steps.install.outputs.version }}
+
+runs:
+  using: 'composite'
+  steps:
+    - id: install
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        # -- platform: only what jolt-lang/jolt actually ships prebuilt releases for --
+        os="$(uname -s)"
+        arch="$(uname -m)"
+        case "$os-$arch" in
+          Linux-x86_64)  platform="x86_64-linux" ;;
+          Darwin-x86_64) platform="x86_64-macos" ;;
+          Darwin-arm64)  platform="aarch64-macos" ;;
+          *)
+            echo "::error::setup-jolt: unsupported platform ${os}-${arch}. jolt-lang/jolt publishes prebuilt releases for Linux x86_64 and macOS x86_64/arm64 only (plus x86_64-windows, not yet wired here)."
+            exit 1
+            ;;
+        esac
+
+        # -- resolve "latest" to a real tag, so the rest of this script always
+        # works against a concrete version string --
+        version="${{ inputs.version }}"
+        if [ "$version" = "latest" ]; then
+          version="$(curl -sSfL https://api.github.com/repos/jolt-lang/jolt/releases/latest \
+            | grep -m1 '"tag_name"' | sed -E 's/.*"v?([^"]+)".*/\1/')"
+          if [ -z "$version" ]; then
+            echo "::error::setup-jolt: could not resolve the latest jolt release from the GitHub API"
+            exit 1
+          fi
+        fi
+        version="${version#v}"
+
+        tarball="jolt-v${version}-${platform}.tar.gz"
+        base_url="https://github.com/jolt-lang/jolt/releases/download/v${version}"
+
+        echo "setup-jolt: installing jolt v${version} for ${platform}"
+
+        workdir="$(mktemp -d)"
+        cd "$workdir"
+        curl -sSfL -o "$tarball" "${base_url}/${tarball}"
+        curl -sSfL -o "${tarball}.sha256" "${base_url}/${tarball}.sha256"
+
+        # -- verify the published checksum before extracting anything.
+        # sha256sum is what ubuntu-latest ships; shasum is the macOS/BSD
+        # fallback -- pick whichever this runner actually has. --
+        if command -v sha256sum >/dev/null 2>&1; then
+          actual="$(sha256sum "$tarball" | cut -d ' ' -f1)"
+        else
+          actual="$(shasum -a 256 "$tarball" | cut -d ' ' -f1)"
+        fi
+        expected="$(cut -d ' ' -f1 "${tarball}.sha256")"
+        if [ "$expected" != "$actual" ]; then
+          echo "::error::setup-jolt: checksum mismatch for ${tarball} (expected ${expected}, got ${actual})"
+          exit 1
+        fi
+
+        tar -xzf "$tarball"
+        extracted_dir="jolt-v${version}-${platform}"
+        install_dir="${RUNNER_TEMP:-/tmp}/setup-jolt/${version}"
+        mkdir -p "$install_dir"
+        mv "$extracted_dir"/* "$install_dir"/
+        chmod +x "$install_dir/jolt"
+
+        echo "$install_dir" >> "$GITHUB_PATH"
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+
+        # sanity check with the PATH entry that will actually be live for
+        # every later step, not the temp workdir
+        "$install_dir/jolt" --version
+
+branding:
+  icon: 'terminal'
+  color: 'purple'
