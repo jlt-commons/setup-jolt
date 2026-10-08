@@ -34,6 +34,25 @@ runs:
             ;;
         esac
 
+        # -- every download retries. GitHub's release CDN occasionally
+        # answers with an HTTP error that clears on the next request: two
+        # jlt-commons site builds failed here with curl exit 22 and passed on
+        # a re-run. Plain --retry only retries timeouts and 408/429/5xx, so
+        # --retry-all-errors also covers the codes and connection failures
+        # it skips. A version that really does not exist (404) therefore
+        # fails about 15 seconds later than it would without retries. --
+        curl_opts=(-sSfL --retry 5 --retry-delay 3 --retry-all-errors --retry-max-time 60 --connect-timeout 20)
+        # The error goes to stderr: the API call runs inside $(...), where
+        # stdout is captured and an ::error:: line there would never print.
+        fetch() {
+          local status
+          curl "${curl_opts[@]}" "$@" || {
+            status=$?
+            echo "::error::setup-jolt: download failed after retries (curl exit ${status}): ${*: -1}" >&2
+            return "$status"
+          }
+        }
+
         # -- resolve "latest" to a real tag, so the rest of this script always
         # works against a concrete version string --
         version="${{ inputs.version }}"
@@ -47,7 +66,7 @@ runs:
           # script before the match is ever used. Verified live: this
           # exact race fired on a GitHub-hosted ubuntu-latest runner even
           # though the same command ran clean locally every time.
-          api_response="$(curl -sSfL https://api.github.com/repos/jolt-lang/jolt/releases/latest)"
+          api_response="$(fetch https://api.github.com/repos/jolt-lang/jolt/releases/latest)"
           version="$(printf '%s\n' "$api_response" | grep -m1 '"tag_name"' | sed -E 's/.*"v?([^"]+)".*/\1/')"
           if [ -z "$version" ]; then
             echo "::error::setup-jolt: could not resolve the latest jolt release from the GitHub API"
@@ -63,8 +82,8 @@ runs:
 
         workdir="$(mktemp -d)"
         cd "$workdir"
-        curl -sSfL -o "$tarball" "${base_url}/${tarball}"
-        curl -sSfL -o "${tarball}.sha256" "${base_url}/${tarball}.sha256"
+        fetch -o "$tarball" "${base_url}/${tarball}"
+        fetch -o "${tarball}.sha256" "${base_url}/${tarball}.sha256"
 
         # -- verify the published checksum before extracting anything.
         # sha256sum is what ubuntu-latest ships; shasum is the macOS/BSD

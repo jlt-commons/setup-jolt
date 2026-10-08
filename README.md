@@ -10,7 +10,8 @@ covers babashka and the Clojure CLI, so this is that, for jolt.
 
 Proof of concept. Downloads a prebuilt release from
 `jolt-lang/jolt`'s own GitHub releases and verifies its published
-`sha256`. Covers Linux x86_64 and macOS x86_64/arm64, the platforms
+`sha256`. Every download retries up to five times, so a transient error
+from GitHub's release CDN doesn't fail the job. Covers Linux x86_64 and macOS x86_64/arm64, the platforms
 jolt-lang/jolt ships prebuilt binaries for today (x86_64 Windows exists
 upstream too, not wired here yet).
 
