@@ -30,6 +30,7 @@ upstream too, not wired here yet).
 | Input | Default | Description |
 |---|---|---|
 | `version` | `latest` | jolt version to install, e.g. `0.8.6`. The `v` prefix is optional. `latest` resolves the newest GitHub release via the API. |
+| `token` | `${{ github.token }}` | Sent with the API call that resolves `latest`, which lifts GitHub's unauthenticated limit of 60 requests an hour per runner IP. Not used for a pinned version, and never sent to the release download URLs. |
 
 ## Outputs
 

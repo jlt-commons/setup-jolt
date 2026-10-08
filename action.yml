@@ -7,6 +7,10 @@ inputs:
     description: 'jolt version to install, e.g. "0.8.6" (the "v" prefix is optional). "latest" resolves the newest GitHub release.'
     required: false
     default: 'latest'
+  token:
+    description: 'Token sent with the GitHub API call that resolves "latest". Defaults to the workflow token, which lifts the unauthenticated limit of 60 requests an hour per runner IP. Not used for a pinned version.'
+    required: false
+    default: ${{ github.token }}
 
 outputs:
   version:
@@ -18,6 +22,8 @@ runs:
   steps:
     - id: install
       shell: bash
+      env:
+        SETUP_JOLT_TOKEN: ${{ inputs.token }}
       run: |
         set -euo pipefail
 
@@ -66,7 +72,19 @@ runs:
           # script before the match is ever used. Verified live: this
           # exact race fired on a GitHub-hosted ubuntu-latest runner even
           # though the same command ran clean locally every time.
-          api_response="$(fetch https://api.github.com/repos/jolt-lang/jolt/releases/latest)"
+          # Authenticated when a token is available. Unauthenticated API
+          # calls share 60 requests an hour per runner IP, which a batch of
+          # site builds on GitHub's shared runners can exhaust; retries
+          # cannot wait out an hourly window. The token only goes to
+          # api.github.com, never to the release download URLs.
+          api_auth=()
+          if [ -n "${SETUP_JOLT_TOKEN:-}" ]; then
+            api_auth=(-H "Authorization: Bearer ${SETUP_JOLT_TOKEN}")
+          fi
+          # ${a[@]+"${a[@]}"}: bash 3.2 (macOS /bin/bash) treats an empty
+          # array as unbound under set -u, so a bare "${api_auth[@]}" would
+          # abort the no-token path.
+          api_response="$(fetch ${api_auth[@]+"${api_auth[@]}"} https://api.github.com/repos/jolt-lang/jolt/releases/latest)"
           version="$(printf '%s\n' "$api_response" | grep -m1 '"tag_name"' | sed -E 's/.*"v?([^"]+)".*/\1/')"
           if [ -z "$version" ]; then
             echo "::error::setup-jolt: could not resolve the latest jolt release from the GitHub API"
